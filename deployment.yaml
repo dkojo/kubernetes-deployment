@@ -15,6 +15,24 @@ spec:
         app: itgenius
     spec:
       serviceAccountName: itgenius-serviceaccount
+      initContainers:
+        - name: secrets-fetcher
+          image: amazon/aws-cli:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Fetching secrets from AWS Secrets Manager..."
+              SECRETS=$(aws secretsmanager get-secret-value --secret-id itgenius-secret2 --query SecretString --output text)
+              DB_USERNAME=$(echo $SECRETS | jq -r '.DB_USERNAME')
+              DB_PASSWORD=$(echo $SECRETS | jq -r '.DB_PASSWORD')
+              echo "DB_USERNAME=$DB_USERNAME" >> /etc/secrets/config.env
+              echo "DB_PASSWORD=$DB_PASSWORD" >> /etc/secrets/config.env
+              kubectl create configmap itgenius-config --from-env-file=/etc/secrets/config.env --dry-run=client -o yaml | kubectl apply -f -
+          volumeMounts:
+            - name: secrets-volume
+              mountPath: /etc/secrets
       containers:
         - name: itgenius-container
           image: itgeniusdevops/itgenius-app-project-repo:v001
@@ -26,14 +44,21 @@ spec:
                 configMapKeyRef:
                   name: itgenius-config
                   key: DB_URL
+            - name: SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: itgenius-config
+                  key: SERVER_PORT
             - name: DB_USERNAME
               valueFrom:
-                secretKeyRef:
-                  name: itgenius-secret
+                configMapKeyRef:
+                  name: itgenius-config
                   key: DB_USERNAME
             - name: DB_PASSWORD
               valueFrom:
-                secretKeyRef:
-                  name: itgenius-secret
+                configMapKeyRef:
+                  name: itgenius-config
                   key: DB_PASSWORD
-
+      volumes:
+        - name: secrets-volume
+          emptyDir: {}
